@@ -10,6 +10,9 @@
 # Example:
 # ./set_static_ip.sh -i 172.24.88.117 -m 255.255.255.0 -g 172.24.88.254 -d 172.24.85.10,172.24.86.10 -n 172.24.85.10,172.24.86.10
 #
+# Alternatively you can set the "-f" option to true to get all the values
+# from vsphere:
+# ./set_static_ip.sh -f true
 
 NET_IF=""
 IP=""
@@ -27,6 +30,7 @@ DNS_FILE="/etc/resolv.conf"
 TIME_FILE=""
 TIME_FILE_DIR="/etc/systemd/timesyncd.conf.d"
 ROUTE_FILE=""
+TMP_FILE="/tmp/guestinfo.xml"
 
 function print_help()
 {
@@ -88,6 +92,21 @@ function convert_mask()
         255.255.255.254) MASK_CIDR=31 ;;
         255.255.255.255) MASK_CIDR=32 ;;
     esac
+}
+
+# read network values from VSphere
+function get_vsphere_values()
+{
+    # Get VM Infos and write it to the temp file
+    vmtoolsd --cmd 'info-get guestinfo.ovfEnv' > $TMP_FILE
+
+    # Extract network/ip infos
+    IP=$(sed -n 's/.*Property oe:key="guestinfo.interface.0.ip.0.address" oe:value="\([^"]*\).*/\1/p' $TMP_FILE)
+    MASK=$(sed -n 's/.*Property oe:key="guestinfo.interface.0.ip.0.netmask" oe:value="\([^"]*\).*/\1/p' $TMP_FILE)
+    GATEWAY=$(sed -n 's/.*Property oe:key="guestinfo.interface.0.route.0.gateway" oe:value="\([^"]*\).*/\1/p' $TMP_FILE)
+    DNS_ARRAY=$(sed -n 's/.*Property oe:key="guestinfo.dns.servers" oe:value="\([^"]*\).*/\1/p' $TMP_FILE)
+    readarray -d , -t DNS <<< "$DNS_ARRAY"
+    convert_mask
 }
 
 # delete all network related config files
@@ -270,10 +289,13 @@ function gen_ip_config()
 }
 
 # check args and print help
-while getopts ":h:i:m:g:d:n:" OPTIONS; do
+while getopts ":h:f:i:m:g:d:n:" OPTIONS; do
     case ${OPTIONS} in
         h)
             print_help
+            ;;
+        f)
+            get_vsphere_values
             ;;
         i)
             IP=${OPTARG}
